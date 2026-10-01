@@ -1,0 +1,15 @@
+{
+    "KPlugin": {
+        "Id": "org.maros.daguwidget",
+        "Name": "Dagu Workflows",
+        "Description": "Schedules, next run and last status of local Dagu workflows",
+        "Icon": "view-calendar-tasks",
+        "Category": "System Information",
+        "Authors": [{ "Name": "Maros Marsalek" }],
+        "License": "MIT",
+        "Version": "0.1.0",
+        "Website": "https://github.com/marosmars/dagu-plasma"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

@@ -95,5 +95,5 @@ service on `http://localhost:8085`.
 
 ## Repository
 
-Standalone repo at `~/Projects/dagu-widget`, branch `main`, pushed to
-<https://github.com/marosmars/dagu-plasma> (public).
+Standalone repo at `~/Projects/dagu-widget`, branch `main`. Remote
+<https://github.com/marosmars/dagu-plasma>; push only once the widget works.
