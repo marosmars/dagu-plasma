@@ -34,6 +34,18 @@ function whenLabel(date, now, use24h) {
     return date.getDate() + ' ' + MONTHS[date.getMonth()];
 }
 
+// "in 45m", "in 2h 20m" for runs less than 24h away; null otherwise (caller shows a clock time).
+function countdownLabel(date, now) {
+    if (!date) return null;
+    var mins = Math.floor((date.getTime() - now.getTime()) / 60000);
+    if (mins < 0 || mins >= 24 * 60) return null;
+    if (mins < 1) return 'in <1m';
+    if (mins < 60) return 'in ' + mins + 'm';
+    var h = Math.floor(mins / 60);
+    var m = mins % 60;
+    return 'in ' + h + 'h' + (m ? ' ' + m + 'm' : '');
+}
+
 // "44s", "3m", "1h 5m"; empty when either end is missing.
 function durationLabel(startedAt, finishedAt) {
     if (!startedAt || !finishedAt) return '';
@@ -95,6 +107,7 @@ function toRows(payload) {
             startedAt: run.startedAt || '',
             finishedAt: run.finishedAt || '',
             error: (entry.errors || []).join('\n'),
+            runId: run.dagRunId || '',
         });
     }
     rows.sort(function (a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
@@ -243,4 +256,13 @@ function lastTooltipHtml(run, logs, timesLabel) {
         html += out || '<p style="opacity:0.7">no output</p>';
     });
     return html;
+}
+
+// Run history from GET /dags/{name}/dag-runs (newest first) as oldest-first items, at most `max`.
+function historyItems(payload, max) {
+    var runs = ((payload && payload.dagRuns) || []).slice(0, max);
+    return runs.reverse().map(function (r) {
+        var status = r.statusLabel || 'not_started';
+        return { runId: r.dagRunId || '', status: status, kind: statusKind(status), startedAt: r.startedAt || '' };
+    });
 }

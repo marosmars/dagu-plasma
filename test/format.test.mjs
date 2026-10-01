@@ -57,6 +57,7 @@ test('toRows flattens the v2 /dags response and sorts by name', () => {
                 suspended: true,
                 errors: null,
                 latestDAGRun: {
+                    dagRunId: 'run-1',
                     statusLabel: 'failed',
                     startedAt: '2026-10-01T08:00:00+02:00',
                     finishedAt: '2026-10-01T08:01:00+02:00',
@@ -68,12 +69,12 @@ test('toRows flattens the v2 /dags response and sorts by name', () => {
     assert.equal(rows.length, 2);
     assert.deepEqual(rows[0], {
         name: 'alpha', fileName: 'alpha-file', schedules: [], suspended: false,
-        status: 'not_started', kind: 'none', startedAt: '', finishedAt: '', error: 'bad yaml',
+        status: 'not_started', kind: 'none', startedAt: '', finishedAt: '', error: 'bad yaml', runId: '',
     });
     assert.deepEqual(rows[1], {
         name: 'zeta', fileName: 'zeta', schedules: ['0 8 * * *'], suspended: true,
         status: 'failed', kind: 'failed', startedAt: '2026-10-01T08:00:00+02:00',
-        finishedAt: '2026-10-01T08:01:00+02:00', error: '',
+        finishedAt: '2026-10-01T08:01:00+02:00', error: '', runId: 'run-1',
     });
 });
 
@@ -197,4 +198,31 @@ test('lastTooltipHtml shows status, steps and escaped output tails', () => {
     assert.match(html, /boom/);
     assert.match(html, /last 2 of 30 lines/);
     assert.match(tip.lastTooltipHtml(null, {}, ''), /never run/);
+});
+
+const extra = loadQmlJs('format.js', ['countdownLabel', 'historyItems']);
+
+test('countdownLabel for runs within 24h, null otherwise', () => {
+    assert.equal(extra.countdownLabel(d(2026, 10, 1, 10, 40, ) , NOW), 'in <1m');
+    assert.equal(extra.countdownLabel(new Date(NOW.getTime() + 30 * 1000), NOW), 'in <1m');
+    assert.equal(extra.countdownLabel(d(2026, 10, 1, 11, 25), NOW), 'in 45m');
+    assert.equal(extra.countdownLabel(d(2026, 10, 1, 13, 0), NOW), 'in 2h 20m');
+    assert.equal(extra.countdownLabel(d(2026, 10, 1, 12, 40), NOW), 'in 2h');
+    assert.equal(extra.countdownLabel(d(2026, 10, 2, 10, 39), NOW), 'in 23h 59m');
+    assert.equal(extra.countdownLabel(d(2026, 10, 2, 10, 41), NOW), null);
+    assert.equal(extra.countdownLabel(null, NOW), null);
+});
+
+test('historyItems turns newest-first dag-runs into oldest-first items, capped', () => {
+    const runs = [
+        { dagRunId: 'c', statusLabel: 'failed', startedAt: 't3' },
+        { dagRunId: 'b', statusLabel: 'succeeded', startedAt: 't2' },
+        { dagRunId: 'a', statusLabel: 'running', startedAt: 't1' },
+    ];
+    assert.deepEqual(extra.historyItems({ dagRuns: runs }, 2), [
+        { runId: 'b', status: 'succeeded', kind: 'ok', startedAt: 't2' },
+        { runId: 'c', status: 'failed', kind: 'failed', startedAt: 't3' },
+    ]);
+    assert.deepEqual(extra.historyItems({}, 10), []);
+    assert.deepEqual(extra.historyItems(null, 10), []);
 });

@@ -28,11 +28,13 @@ PlasmaComponents3.ItemDelegate {
     property string loadedFor: ""
 
     signal activated(string fileName)
+    signal lastRunActivated(var dag)
+    signal contextRequested(var dag)
 
     readonly property bool failed: dag.kind === "failed" || dag.kind === "warning"
     readonly property string nextText: dag.suspended ? i18n("suspended")
         : dag.kind === "running" ? i18n("running…")
-        : dag.next ? Fmt.whenLabel(dag.next, now, use24h)
+        : dag.next ? (Fmt.countdownLabel(dag.next, now) || Fmt.whenLabel(dag.next, now, use24h))
         : "—"
     readonly property string duration: showDuration ? Fmt.durationLabel(dag.startedAt, dag.finishedAt) : ""
     readonly property string lastText: dag.startedAt
@@ -113,6 +115,14 @@ PlasmaComponents3.ItemDelegate {
         return Fmt.lastTooltipHtml(lastRun, logs, times);
     }
 
+    // Right-click: per-DAG menu (left clicks pass through to the delegate)
+    MouseArea {
+        anchors.fill: parent
+        z: 1
+        acceptedButtons: Qt.RightButton
+        onClicked: row.contextRequested(row.dag)
+    }
+
     contentItem: RowLayout {
         spacing: Kirigami.Units.largeSpacing
 
@@ -181,6 +191,42 @@ PlasmaComponents3.ItemDelegate {
             }
         }
 
+        // Last 10 runs, oldest left; hover a dot for its status and time
+        Row {
+            Layout.alignment: Qt.AlignVCenter
+            Layout.preferredWidth: 10 * (dotSize + spacing)
+            readonly property real dotSize: Math.round(Kirigami.Units.gridUnit * 0.45)
+            spacing: Math.round(Kirigami.Units.gridUnit * 0.2)
+            layoutDirection: Qt.RightToLeft
+
+            Repeater {
+                // RightToLeft + reversed model keeps the newest run next to NEXT/LAST
+                model: (row.dag.history || []).slice().reverse()
+                delegate: PlasmaCore.ToolTipArea {
+                    required property var modelData
+                    width: parent.dotSize
+                    height: parent.dotSize
+                    mainText: modelData.status.replace(/_/g, " ")
+                    subText: modelData.startedAt ? Fmt.whenLabel(new Date(modelData.startedAt), row.now, row.use24h) : ""
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: width / 2
+                        color: {
+                            switch (modelData.kind) {
+                            case "ok": return Kirigami.Theme.positiveTextColor;
+                            case "failed": return Kirigami.Theme.negativeTextColor;
+                            case "warning": return Kirigami.Theme.neutralTextColor;
+                            case "running": return Kirigami.Theme.highlightColor;
+                            default: return Kirigami.Theme.disabledTextColor;
+                            }
+                        }
+                        opacity: 0.85
+                    }
+                }
+            }
+        }
+
         // Next / last as two fixed-width columns: small caption over a large value
         Repeater {
             model: [
@@ -204,6 +250,14 @@ PlasmaComponents3.ItemDelegate {
                 subText: modelData.kind === "next" ? row.nextTooltip() : row.lastTooltip()
                 textFormat: Text.RichText
                 onAboutToShow: row.loadDetails()
+
+                // LAST is a link to that run's page in the dagu UI
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: valueTip.modelData.kind === "last" && row.dag.runId !== ""
+                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    onClicked: row.lastRunActivated(row.dag)
+                }
 
                 ColumnLayout {
                     id: valueColumn

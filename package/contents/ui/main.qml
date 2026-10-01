@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.plasmoid
+import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.components as PlasmaComponents3
 import org.kde.plasma.extras as PlasmaExtras
 import org.kde.notification
@@ -17,6 +18,10 @@ PlasmoidItem {
     property bool loaded: false
     property date lastOk
     property date now: new Date()
+    // fileName -> recent runs, oldest first (see Fmt.historyItems)
+    property var history: ({})
+    // DAG the right-click menu was opened on (null = empty area)
+    property var menuDag: null
 
     readonly property var cfg: Plasmoid.configuration
     readonly property string baseUrl: cfg.serverUrl.replace(/\/+$/, "")
@@ -24,6 +29,7 @@ PlasmoidItem {
     readonly property var shownDags: Fmt.sortRows(
         Fmt.visibleRows(dags, cfg.hiddenDags).map(d => Object.assign({}, d, {
             next: d.suspended ? null : Cron.nextRunAny(d.schedules, now),
+            history: history[d.fileName] || [],
         })),
         cfg.sortBy)
     readonly property string overall: Fmt.overallState(shownDags, reachable)
@@ -65,6 +71,7 @@ PlasmoidItem {
                     root.reachable = true;
                     root.loaded = true;
                     root.lastOk = new Date();
+                    root.loadHistory(rows);
                     return;
                 } catch (e) {
                     console.warn("dagu widget: bad JSON", e);
@@ -74,6 +81,48 @@ PlasmoidItem {
         };
         xhr.open("GET", baseUrl + "/api/v2/dags?perPage=200");
         xhr.send();
+    }
+
+    function loadHistory(rows) {
+        rows.forEach(function (d) {
+            var xhr = new XMLHttpRequest();
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState !== XMLHttpRequest.DONE || xhr.status !== 200) return;
+                try {
+                    var copy = Object.assign({}, root.history);
+                    copy[d.fileName] = Fmt.historyItems(JSON.parse(xhr.responseText), 10);
+                    root.history = copy;
+                } catch (e) {
+                    console.warn("dagu widget: bad history JSON", e);
+                }
+            };
+            xhr.open("GET", baseUrl + "/api/v2/dags/" + encodeURIComponent(d.fileName) + "/dag-runs?limit=10");
+            xhr.send();
+        });
+    }
+
+    // POST start / stop-all for a DAG, then refresh so the row picks up the new state
+    function dagAction(dag, action) {
+        var xhr = new XMLHttpRequest();
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE) return;
+            if (xhr.status !== 200) console.warn("dagu widget:", action, dag.fileName, "failed:", xhr.status, xhr.responseText);
+            refreshSoon.restart();
+        };
+        xhr.open("POST", baseUrl + "/api/v2/dags/" + encodeURIComponent(dag.fileName) + "/" + action);
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.send("{}");
+    }
+
+    function openRun(dag) {
+        if (dag.runId) openUrl("/dag-runs/" + encodeURIComponent(dag.fileName) + "/" + encodeURIComponent(dag.runId));
+        else openUrl("/dags/" + encodeURIComponent(dag.fileName));
+    }
+
+    Timer {
+        id: refreshSoon
+        interval: 1500
+        onTriggered: root.refresh()
     }
 
     function notifyFailure(dag) {
@@ -148,15 +197,36 @@ PlasmoidItem {
                     onClicked: root.openUrl("/")
                 }
                 Item { Layout.fillWidth: true }
-                Rectangle {
-                    width: Kirigami.Units.smallSpacing * 2
-                    height: width
-                    radius: width / 2
-                    color: root.stateColor
-                }
+                // Workflow failures are reported here, separate from server reachability
                 PlasmaComponents3.Label {
-                    text: root.baseUrl.replace(/^https?:\/\//, "")
-                    opacity: 0.7
+                    readonly property int failedCount: root.shownDags.filter(d => d.kind === "failed" || d.kind === "warning").length
+                    visible: root.reachable && failedCount > 0
+                    text: i18np("%1 failed", "%1 failed", failedCount)
+                    color: Kirigami.Theme.negativeTextColor
+                    font.bold: true
+                    Layout.rightMargin: Kirigami.Units.largeSpacing
+                }
+                // Server reachability only: green = reachable, red = not
+                PlasmaCore.ToolTipArea {
+                    implicitWidth: serverRow.implicitWidth
+                    implicitHeight: serverRow.implicitHeight
+                    mainText: root.reachable ? i18n("Dagu server reachable") : i18n("Dagu server not reachable")
+                    subText: root.baseUrl
+
+                    RowLayout {
+                        id: serverRow
+                        anchors.fill: parent
+                        Rectangle {
+                            width: Kirigami.Units.smallSpacing * 2
+                            height: width
+                            radius: width / 2
+                            color: root.reachable ? Kirigami.Theme.positiveTextColor : Kirigami.Theme.negativeTextColor
+                        }
+                        PlasmaComponents3.Label {
+                            text: root.baseUrl.replace(/^https?:\/\//, "")
+                            opacity: 0.7
+                        }
+                    }
                 }
                 PlasmaComponents3.ToolButton {
                     icon.name: "view-refresh"
@@ -167,15 +237,42 @@ PlasmoidItem {
             }
         }
 
-        // Own right-click menu: the rows and buttons otherwise swallow Plasma's context menu
+        // Own right-click menu (rows open it with their DAG; empty space opens the general part)
         MouseArea {
             anchors.fill: parent
-            z: 10
             acceptedButtons: Qt.RightButton
-            onClicked: mouse => contextMenu.popup()
+            onClicked: mouse => { root.menuDag = null; contextMenu.popup(); }
         }
         PlasmaComponents3.Menu {
             id: contextMenu
+            readonly property bool forDag: root.menuDag !== null
+            readonly property bool running: forDag && root.menuDag.kind === "running"
+
+            PlasmaComponents3.MenuItem {
+                visible: contextMenu.forDag && !contextMenu.running
+                height: visible ? implicitHeight : 0
+                text: contextMenu.forDag ? i18n("Run %1 now", root.menuDag.name) : ""
+                icon.name: "media-playback-start"
+                onTriggered: root.dagAction(root.menuDag, "start")
+            }
+            PlasmaComponents3.MenuItem {
+                visible: contextMenu.running
+                height: visible ? implicitHeight : 0
+                text: contextMenu.forDag ? i18n("Stop %1", root.menuDag.name) : ""
+                icon.name: "media-playback-stop"
+                onTriggered: root.dagAction(root.menuDag, "stop-all")
+            }
+            PlasmaComponents3.MenuItem {
+                visible: contextMenu.forDag && root.menuDag.runId !== ""
+                height: visible ? implicitHeight : 0
+                text: i18n("Open last run log")
+                icon.name: "text-x-log"
+                onTriggered: root.openRun(root.menuDag)
+            }
+            PlasmaComponents3.MenuSeparator {
+                visible: contextMenu.forDag
+                height: visible ? implicitHeight : 0
+            }
             PlasmaComponents3.MenuItem {
                 text: i18n("Configure Dagu Workflows…")
                 icon.name: "configure"
@@ -225,6 +322,8 @@ PlasmoidItem {
                     use24h: root.cfg.use24h
                     baseUrl: root.baseUrl
                     onActivated: fileName => root.openUrl("/dags/" + encodeURIComponent(fileName))
+                    onLastRunActivated: dag => root.openRun(dag)
+                    onContextRequested: dag => { root.menuDag = dag; contextMenu.popup(); }
                 }
             }
         }
