@@ -13,10 +13,19 @@ function startOfDay(date) {
     return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
+function clockLabel(date, use24h) {
+    if (use24h === false) {
+        var h = date.getHours() % 12 || 12;
+        return h + ':' + pad(date.getMinutes()) + (date.getHours() < 12 ? ' AM' : ' PM');
+    }
+    return pad(date.getHours()) + ':' + pad(date.getMinutes());
+}
+
 // "13:00" today, "tmrw 08:00", "yday 23:05", "Mon 09:00" within a week, else "20 Nov".
-function whenLabel(date, now) {
+// use24h defaults to true; false gives "1:00 PM".
+function whenLabel(date, now, use24h) {
     if (!date) return '';
-    var hm = pad(date.getHours()) + ':' + pad(date.getMinutes());
+    var hm = clockLabel(date, use24h);
     var days = Math.round((startOfDay(date) - startOfDay(now)) / 86400000);
     if (days === 0) return hm;
     if (days === 1) return 'tmrw ' + hm;
@@ -61,7 +70,7 @@ function overallState(rows, reachable) {
     if (!reachable) return 'down';
     var running = false;
     for (var i = 0; i < rows.length; i++) {
-        if (rows[i].kind === 'failed' || rows[i].kind === 'warning') return 'failed';
+        if (isFailure(rows[i].kind)) return 'failed';
         if (rows[i].kind === 'running') running = true;
     }
     return running ? 'running' : 'ok';
@@ -90,4 +99,52 @@ function toRows(payload) {
     }
     rows.sort(function (a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
     return rows;
+}
+
+function isFailure(kind) {
+    return kind === 'failed' || kind === 'warning';
+}
+
+// Rows whose name is not in the hidden list.
+function visibleRows(rows, hidden) {
+    var skip = {};
+    for (var i = 0; i < (hidden || []).length; i++) skip[hidden[i]] = true;
+    return rows.filter(function (r) { return !skip[r.name]; });
+}
+
+var STATUS_ORDER = { failed: 0, warning: 1, running: 2, none: 3, ok: 4 };
+
+function byName(a, b) {
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+}
+
+// Sorted copy: "name", "nextRun" (rows carry a `next` Date or null; null last),
+// or "status" (failures first). Ties break by name.
+function sortRows(rows, by) {
+    var copy = rows.slice();
+    copy.sort(function (a, b) {
+        if (by === 'nextRun') {
+            var an = a.next ? a.next.getTime() : Infinity;
+            var bn = b.next ? b.next.getTime() : Infinity;
+            if (an !== bn) return an < bn ? -1 : 1;
+        } else if (by === 'status') {
+            var as = STATUS_ORDER[a.kind] !== undefined ? STATUS_ORDER[a.kind] : 3;
+            var bs = STATUS_ORDER[b.kind] !== undefined ? STATUS_ORDER[b.kind] : 3;
+            if (as !== bs) return as - bs;
+        }
+        return byName(a, b);
+    });
+    return copy;
+}
+
+// Rows that failed since the previous fetch. prevRows null = first fetch, never notify.
+function newFailures(prevRows, rows) {
+    if (!prevRows) return [];
+    var prev = {};
+    for (var i = 0; i < prevRows.length; i++) prev[prevRows[i].name] = prevRows[i];
+    return rows.filter(function (r) {
+        if (!isFailure(r.kind)) return false;
+        var p = prev[r.name];
+        return !p || !isFailure(p.kind) || p.startedAt !== r.startedAt;
+    });
 }

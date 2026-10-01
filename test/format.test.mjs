@@ -81,3 +81,56 @@ test('toRows tolerates a malformed payload', () => {
     assert.deepEqual(toRows({}), []);
     assert.deepEqual(toRows(null), []);
 });
+
+const more = loadQmlJs('format.js', ['whenLabel', 'visibleRows', 'sortRows', 'newFailures']);
+
+test('whenLabel in 12h mode', () => {
+    assert.equal(more.whenLabel(d(2026, 10, 1, 13, 0), NOW, false), '1:00 PM');
+    assert.equal(more.whenLabel(d(2026, 10, 1, 0, 5), NOW, false), '12:05 AM');
+    assert.equal(more.whenLabel(d(2026, 10, 2, 8, 0), NOW, false), 'tmrw 8:00 AM');
+    assert.equal(more.whenLabel(d(2026, 10, 2, 8, 0), NOW, true), 'tmrw 08:00');
+});
+
+const row = (name, kind, next, startedAt = '') => ({ name, kind, next, startedAt });
+
+test('visibleRows drops hidden DAG names', () => {
+    const rows = [row('a', 'ok'), row('b', 'ok'), row('c', 'ok')];
+    assert.deepEqual(more.visibleRows(rows, ['b']).map(r => r.name), ['a', 'c']);
+    assert.deepEqual(more.visibleRows(rows, []).map(r => r.name), ['a', 'b', 'c']);
+    assert.deepEqual(more.visibleRows(rows, undefined).map(r => r.name), ['a', 'b', 'c']);
+});
+
+test('sortRows by name, next run, status', () => {
+    const rows = [
+        row('c', 'ok', d(2026, 10, 1, 12, 0)),
+        row('a', 'failed', null),
+        row('b', 'running', d(2026, 10, 1, 11, 0)),
+        row('d', 'none', d(2026, 10, 1, 11, 0)),
+    ];
+    assert.deepEqual(more.sortRows(rows, 'name').map(r => r.name), ['a', 'b', 'c', 'd']);
+    // no next run goes last; ties by name
+    assert.deepEqual(more.sortRows(rows, 'nextRun').map(r => r.name), ['b', 'd', 'c', 'a']);
+    assert.deepEqual(more.sortRows(rows, 'status').map(r => r.name), ['a', 'b', 'd', 'c']);
+    // does not mutate the input
+    assert.deepEqual(rows.map(r => r.name), ['c', 'a', 'b', 'd']);
+});
+
+test('newFailures only reports failures that are new since the previous fetch', () => {
+    const t1 = '2026-10-01T08:00:00+02:00';
+    const t2 = '2026-10-01T14:00:00+02:00';
+    // first fetch never notifies
+    assert.deepEqual(more.newFailures(null, [row('a', 'failed', null, t1)]), []);
+    // same failed run again: nothing new
+    assert.deepEqual(more.newFailures([row('a', 'failed', null, t1)], [row('a', 'failed', null, t1)]), []);
+    // ok -> failed
+    assert.deepEqual(
+        more.newFailures([row('a', 'ok', null, t1)], [row('a', 'failed', null, t2)]).map(r => r.name), ['a']);
+    // failed -> a later failed run
+    assert.deepEqual(
+        more.newFailures([row('a', 'failed', null, t1)], [row('a', 'failed', null, t2)]).map(r => r.name), ['a']);
+    // new DAG that already failed
+    assert.deepEqual(more.newFailures([], [row('b', 'failed', null, t1)]).map(r => r.name), ['b']);
+    // warning counts as a failure
+    assert.deepEqual(
+        more.newFailures([row('a', 'running', null, t1)], [row('a', 'warning', null, t1)]).map(r => r.name), ['a']);
+});

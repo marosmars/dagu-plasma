@@ -7,8 +7,23 @@ schedule, next run, and last run status. Click a row to open it in the Dagu web 
 - In a panel it shows an icon with a status dot: green = all OK, red = a last run
   failed, blue = something running, grey = Dagu unreachable.
 
-Reads `GET <serverUrl>/api/v2/dags` (default `http://localhost:8085`, every 30 s;
-both configurable). Next runs are computed locally from the cron expressions.
+Reads `GET <serverUrl>/api/v2/dags` and computes next runs locally from the cron
+expressions.
+
+## Settings
+
+Right-click the widget → *Configure Dagu Workflows…*
+
+| Setting | Default |
+|---|---|
+| Dagu server URL | `http://localhost:8085` |
+| Refresh interval | 30 s |
+| Workflows to show | all |
+| Sort by | name (or next run, or status with failures first) |
+| Compact layout (one line per workflow) | off |
+| Show cron schedule / last run duration | on / on |
+| Time format | 24-hour |
+| Notify when a run fails | on |
 
 ## Install
 

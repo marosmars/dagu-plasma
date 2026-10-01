@@ -10,5 +10,26 @@
         <entry name="refreshSeconds" type="Int">
             <default>30</default>
         </entry>
+        <entry name="hiddenDags" type="StringList">
+            <default></default>
+        </entry>
+        <entry name="sortBy" type="String">
+            <default>name</default>
+        </entry>
+        <entry name="compactRows" type="Bool">
+            <default>false</default>
+        </entry>
+        <entry name="showSchedule" type="Bool">
+            <default>true</default>
+        </entry>
+        <entry name="showDuration" type="Bool">
+            <default>true</default>
+        </entry>
+        <entry name="use24h" type="Bool">
+            <default>true</default>
+        </entry>
+        <entry name="notifyOnFailure" type="Bool">
+            <default>true</default>
+        </entry>
     </group>
 </kcfg>

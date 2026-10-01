@@ -4,7 +4,9 @@ import org.kde.kirigami as Kirigami
 import org.kde.plasma.plasmoid
 import org.kde.plasma.components as PlasmaComponents3
 import org.kde.plasma.extras as PlasmaExtras
+import org.kde.notification
 
+import "../code/cron.js" as Cron
 import "../code/format.js" as Fmt
 
 PlasmoidItem {
@@ -16,8 +18,15 @@ PlasmoidItem {
     property date lastOk
     property date now: new Date()
 
-    readonly property string baseUrl: Plasmoid.configuration.serverUrl.replace(/\/+$/, "")
-    readonly property string overall: Fmt.overallState(dags, reachable)
+    readonly property var cfg: Plasmoid.configuration
+    readonly property string baseUrl: cfg.serverUrl.replace(/\/+$/, "")
+    // Visible rows, each with its computed next run, in the configured order
+    readonly property var shownDags: Fmt.sortRows(
+        Fmt.visibleRows(dags, cfg.hiddenDags).map(d => Object.assign({}, d, {
+            next: d.suspended ? null : Cron.nextRunAny(d.schedules, now),
+        })),
+        cfg.sortBy)
+    readonly property string overall: Fmt.overallState(shownDags, reachable)
     readonly property color stateColor: {
         switch (overall) {
         case "down": return Kirigami.Theme.disabledTextColor;
@@ -31,9 +40,9 @@ PlasmoidItem {
     toolTipMainText: i18n("Dagu workflows")
     toolTipSubText: {
         if (!reachable) return i18n("Dagu not reachable at %1", baseUrl);
-        var failed = dags.filter(d => d.kind === "failed" || d.kind === "warning").length;
+        var failed = shownDags.filter(d => d.kind === "failed" || d.kind === "warning").length;
         return failed ? i18np("%1 workflow failed", "%1 workflows failed", failed)
-                      : i18np("%1 workflow, all OK", "%1 workflows, all OK", dags.length);
+                      : i18np("%1 workflow, all OK", "%1 workflows, all OK", shownDags.length);
     }
 
     // Big enough (desktop, or a resized window) shows the list; panels show the icon.
@@ -47,7 +56,12 @@ PlasmoidItem {
             if (xhr.readyState !== XMLHttpRequest.DONE) return;
             if (xhr.status === 200) {
                 try {
-                    root.dags = Fmt.toRows(JSON.parse(xhr.responseText));
+                    var rows = Fmt.toRows(JSON.parse(xhr.responseText));
+                    if (root.cfg.notifyOnFailure) {
+                        Fmt.newFailures(root.loaded ? root.dags : null, Fmt.visibleRows(rows, root.cfg.hiddenDags))
+                            .forEach(root.notifyFailure);
+                    }
+                    root.dags = rows;
                     root.reachable = true;
                     root.loaded = true;
                     root.lastOk = new Date();
@@ -62,12 +76,31 @@ PlasmoidItem {
         xhr.send();
     }
 
+    function notifyFailure(dag) {
+        console.info("dagu widget: notifying failure of", dag.name);
+        var n = failureNotification.createObject(root, {
+            title: i18n("Dagu: %1 %2", dag.name, dag.status.replace(/_/g, " ")),
+            text: dag.startedAt ? i18n("Run started %1", Fmt.whenLabel(new Date(dag.startedAt), new Date(), cfg.use24h)) : "",
+        });
+        n.sendEvent();
+    }
+
+    Component {
+        id: failureNotification
+        Notification {
+            componentName: "plasma_workspace"
+            eventId: "notification"
+            iconName: "data-error"
+            autoDelete: true
+        }
+    }
+
     function openUrl(path) {
         Qt.openUrlExternally(baseUrl + path);
     }
 
     Timer {
-        interval: Math.max(5, Plasmoid.configuration.refreshSeconds) * 1000
+        interval: Math.max(5, root.cfg.refreshSeconds) * 1000
         running: true
         repeat: true
         triggeredOnStart: true
@@ -101,7 +134,8 @@ PlasmoidItem {
     fullRepresentation: PlasmaExtras.Representation {
         Layout.minimumWidth: Kirigami.Units.gridUnit * 16
         Layout.preferredWidth: Kirigami.Units.gridUnit * 22
-        Layout.preferredHeight: Kirigami.Units.gridUnit * 3 + list.count * Kirigami.Units.gridUnit * 2.6
+        Layout.preferredHeight: Kirigami.Units.gridUnit * 3
+            + list.count * Kirigami.Units.gridUnit * (root.cfg.compactRows ? 1.8 : 2.8)
         collapseMarginsHint: true
 
         header: PlasmaExtras.PlasmoidHeading {
@@ -144,7 +178,7 @@ PlasmoidItem {
                 wrapMode: Text.WordWrap
                 color: Kirigami.Theme.negativeTextColor
                 text: root.loaded
-                    ? i18n("Dagu not reachable. Last update %1.", Fmt.whenLabel(root.lastOk, root.now))
+                    ? i18n("Dagu not reachable. Last update %1.", Fmt.whenLabel(root.lastOk, root.now, root.cfg.use24h))
                     : i18n("Dagu not reachable at %1.", root.baseUrl)
             }
 
@@ -153,12 +187,16 @@ PlasmoidItem {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
-                model: root.dags
+                model: root.shownDags
                 delegate: DagRow {
                     width: ListView.view.width
                     dag: modelData
                     now: root.now
                     stale: !root.reachable
+                    compact: root.cfg.compactRows
+                    showSchedule: root.cfg.showSchedule
+                    showDuration: root.cfg.showDuration
+                    use24h: root.cfg.use24h
                     onActivated: fileName => root.openUrl("/dags/" + encodeURIComponent(fileName))
                 }
             }
