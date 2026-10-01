@@ -84,19 +84,21 @@ PlasmoidItem {
     }
 
     function loadHistory(rows) {
+        if (cfg.historyCount < 1) return;
         rows.forEach(function (d) {
             var xhr = new XMLHttpRequest();
             xhr.onreadystatechange = function () {
                 if (xhr.readyState !== XMLHttpRequest.DONE || xhr.status !== 200) return;
                 try {
                     var copy = Object.assign({}, root.history);
-                    copy[d.fileName] = Fmt.historyItems(JSON.parse(xhr.responseText), 10);
+                    copy[d.fileName] = Fmt.historyItems(JSON.parse(xhr.responseText), root.cfg.historyCount);
                     root.history = copy;
                 } catch (e) {
                     console.warn("dagu widget: bad history JSON", e);
                 }
             };
-            xhr.open("GET", baseUrl + "/api/v2/dags/" + encodeURIComponent(d.fileName) + "/dag-runs?limit=10");
+            xhr.open("GET", baseUrl + "/api/v2/dags/" + encodeURIComponent(d.fileName) + "/dag-runs?limit="
+                + Math.max(1, root.cfg.historyCount));
             xhr.send();
         });
     }
@@ -184,7 +186,7 @@ PlasmoidItem {
         Layout.minimumWidth: Kirigami.Units.gridUnit * 16
         Layout.preferredWidth: Kirigami.Units.gridUnit * 22
         Layout.preferredHeight: Kirigami.Units.gridUnit * 3
-            + list.count * Kirigami.Units.gridUnit * (root.cfg.compactRows ? 1.8 : 2.8)
+            + (list.count + 1) * Kirigami.Units.gridUnit * (root.cfg.compactRows ? 1.8 : 2.8)
         collapseMarginsHint: true
 
         header: PlasmaExtras.PlasmoidHeading {
@@ -305,6 +307,16 @@ PlasmoidItem {
                     : i18n("Dagu not reachable at %1.", root.baseUrl)
             }
 
+            // Column captions: a DagRow in header mode, outside the ListView
+            // (as ListView.header it crashed plasmashell on load)
+            DagRow {
+                Layout.fillWidth: true
+                isHeader: true
+                compact: root.cfg.compactRows
+                use24h: root.cfg.use24h
+                historyCount: root.cfg.historyCount
+            }
+
             ListView {
                 id: list
                 Layout.fillWidth: true
@@ -321,6 +333,8 @@ PlasmoidItem {
                     showDuration: root.cfg.showDuration
                     use24h: root.cfg.use24h
                     baseUrl: root.baseUrl
+                    historyCount: root.cfg.historyCount
+                    showSeparator: index < list.count - 1
                     onActivated: fileName => root.openUrl("/dags/" + encodeURIComponent(fileName))
                     onLastRunActivated: dag => root.openRun(dag)
                     onContextRequested: dag => { root.menuDag = dag; contextMenu.popup(); }

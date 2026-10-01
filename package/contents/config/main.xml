@@ -13,6 +13,9 @@
         <entry name="hiddenDags" type="StringList">
             <default></default>
         </entry>
+        <entry name="historyCount" type="Int">
+            <default>5</default>
+        </entry>
         <entry name="sortBy" type="String">
             <default>name</default>
         </entry>

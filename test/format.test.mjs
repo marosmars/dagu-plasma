@@ -226,3 +226,13 @@ test('historyItems turns newest-first dag-runs into oldest-first items, capped',
     assert.deepEqual(extra.historyItems({}, 10), []);
     assert.deepEqual(extra.historyItems(null, 10), []);
 });
+
+test('historySummary counts ok and failed runs', () => {
+    const { historySummary } = loadQmlJs('format.js', ['historySummary']);
+    const h = kinds => kinds.map(kind => ({ kind }));
+    assert.equal(historySummary(h(['ok', 'ok', 'ok'])), '3/3 ok');
+    assert.equal(historySummary(h(['ok', 'failed', 'warning', 'ok'])), '2/4 ok · 2 failed');
+    assert.equal(historySummary(h(['ok', 'running'])), '1/2 ok');
+    assert.equal(historySummary([]), 'no runs');
+    assert.equal(historySummary(undefined), 'no runs');
+});

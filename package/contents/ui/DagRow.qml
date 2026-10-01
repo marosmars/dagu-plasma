@@ -20,6 +20,8 @@ PlasmaComponents3.ItemDelegate {
     property bool showDuration: true
     property bool use24h: true
     property string baseUrl: ""
+    property int historyCount: 5
+    property bool showSeparator: true
 
     // Hover details, fetched on first hover and refetched when a new run appears
     property var detail: null
@@ -31,15 +33,26 @@ PlasmaComponents3.ItemDelegate {
     signal lastRunActivated(var dag)
     signal contextRequested(var dag)
 
+    // Header mode renders the column captions with the exact same layout as a row
+    property bool isHeader: false
+
     readonly property bool failed: dag.kind === "failed" || dag.kind === "warning"
-    readonly property string nextText: dag.suspended ? i18n("suspended")
+    readonly property string countdown: dag.next ? (Fmt.countdownLabel(dag.next, now) || "") : ""
+    // Every cell: line 1 = bold primary value, line 2 = small secondary detail
+    readonly property string nextPrimary: dag.suspended ? i18n("suspended")
         : dag.kind === "running" ? i18n("running…")
-        : dag.next ? (Fmt.countdownLabel(dag.next, now) || Fmt.whenLabel(dag.next, now, use24h))
+        : dag.next ? (countdown || Fmt.whenLabel(dag.next, now, use24h))
         : "—"
-    readonly property string duration: showDuration ? Fmt.durationLabel(dag.startedAt, dag.finishedAt) : ""
-    readonly property string lastText: dag.startedAt
-        ? Fmt.whenLabel(new Date(dag.startedAt), now, use24h) + (duration ? " · " + duration : "")
-        : i18n("never")
+    readonly property string nextSecondary: dag.suspended || dag.kind === "running" || !dag.next ? ""
+        : countdown ? Fmt.whenLabel(dag.next, now, use24h) : ""
+    readonly property string lastPrimary: dag.startedAt ? Fmt.whenLabel(new Date(dag.startedAt), now, use24h) : i18n("never")
+    readonly property string lastSecondary: {
+        var parts = [];
+        if (dag.startedAt && dag.kind !== "ok") parts.push((dag.status || "").replace(/_/g, " "));
+        var dur = showDuration ? Fmt.durationLabel(dag.startedAt, dag.finishedAt) : "";
+        if (dur) parts.push(i18n("took %1", dur));
+        return parts.join(" · ");
+    }
     readonly property color lastColor: failed ? Kirigami.Theme.negativeTextColor
         : dag.kind === "ok" ? Kirigami.Theme.positiveTextColor
         : Kirigami.Theme.textColor
@@ -47,8 +60,29 @@ PlasmaComponents3.ItemDelegate {
         : dag.kind === "running" ? Kirigami.Theme.highlightColor
         : Kirigami.Theme.textColor
 
+    // Shared column geometry (header and rows use the same numbers)
+    readonly property real lineHeight: primaryMetrics.height
+    readonly property real dotSize: Math.round(Kirigami.Units.gridUnit * 0.45)
+    readonly property real dotGap: Math.round(Kirigami.Units.gridUnit * 0.2)
+    readonly property string historyCaption: i18np("LAST RUN", "LAST %1 RUNS", historyCount)
+    readonly property real historyWidth: Math.max(historyCount * (dotSize + dotGap), captionMetrics.advanceWidth(historyCaption))
+    readonly property real timeWidth: Kirigami.Units.gridUnit * (use24h ? 6 : 7.5)
+    readonly property bool twoLines: !compact && !isHeader
+
+    FontMetrics {
+        id: primaryMetrics
+        font.bold: true
+        font.pointSize: Kirigami.Theme.defaultFont.pointSize
+    }
+    FontMetrics {
+        id: captionMetrics
+        font.pointSize: Kirigami.Theme.smallFont.pointSize
+    }
+
+    hoverEnabled: !isHeader
+    background.visible: !isHeader
     opacity: stale ? 0.5 : 1
-    onClicked: activated(dag.fileName)
+    onClicked: if (!isHeader) activated(dag.fileName)
 
     function getJson(path, callback) {
         var xhr = new XMLHttpRequest();
@@ -119,23 +153,57 @@ PlasmaComponents3.ItemDelegate {
     MouseArea {
         anchors.fill: parent
         z: 1
+        enabled: !row.isHeader
         acceptedButtons: Qt.RightButton
         onClicked: row.contextRequested(row.dag)
+    }
+
+    // Thin line under the row (off for the last row)
+    Kirigami.Separator {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: row.leftPadding
+        anchors.rightMargin: row.rightPadding
+        visible: row.showSeparator
+        opacity: row.isHeader ? 0.8 : 0.4
+    }
+
+    component Caption: PlasmaComponents3.Label {
+        Layout.preferredHeight: row.lineHeight
+        verticalAlignment: Text.AlignBottom
+        font.pointSize: Kirigami.Theme.smallFont.pointSize
+        font.letterSpacing: 1
+        opacity: 0.55
+        elide: Text.ElideRight
+    }
+    component Primary: PlasmaComponents3.Label {
+        Layout.preferredHeight: row.lineHeight
+        verticalAlignment: Text.AlignVCenter
+        font.bold: true
+        font.pointSize: Kirigami.Theme.defaultFont.pointSize
+        elide: Text.ElideRight
+    }
+    component Secondary: PlasmaComponents3.Label {
+        visible: row.twoLines
+        font.pointSize: Kirigami.Theme.smallFont.pointSize
+        opacity: 0.6
+        elide: Text.ElideRight
     }
 
     contentItem: RowLayout {
         spacing: Kirigami.Units.largeSpacing
 
-        // Status: a plain coloured dot (an icon here read as a checkbox); warning icon for DAG errors
+        // Status dot, centred on line 1; warning icon for DAG errors
         Item {
             Layout.preferredWidth: Kirigami.Units.iconSizes.small
-            Layout.preferredHeight: Kirigami.Units.iconSizes.small
-            Layout.alignment: Qt.AlignVCenter
+            Layout.preferredHeight: row.lineHeight
+            Layout.alignment: Qt.AlignTop
 
             Rectangle {
                 anchors.centerIn: parent
-                visible: !row.dag.error
-                width: Math.round(parent.width * 0.75)
+                visible: !row.isHeader && !row.dag.error
+                width: Math.round(Kirigami.Units.iconSizes.small * 0.7)
                 height: width
                 radius: width / 2
                 color: {
@@ -156,105 +224,111 @@ PlasmaComponents3.ItemDelegate {
                 }
             }
             Kirigami.Icon {
-                anchors.fill: parent
-                visible: !!row.dag.error
+                anchors.centerIn: parent
+                width: Kirigami.Units.iconSizes.small
+                height: width
+                visible: !row.isHeader && !!row.dag.error
                 source: "data-warning"
             }
         }
 
+        // Name / schedule
         ColumnLayout {
             Layout.fillWidth: true
-            Layout.alignment: Qt.AlignVCenter
+            Layout.alignment: Qt.AlignTop
             spacing: 0
 
-            HoverHandler { id: nameHover }
+            HoverHandler { id: nameHover; enabled: !row.isHeader }
             QQC2.ToolTip.visible: nameHover.hovered
             QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
             QQC2.ToolTip.text: [
                 row.dag.name + " — " + (row.dag.status || "").replace(/_/g, " "),
                 row.dag.error || "",
             ].filter(s => s !== "").join("\n")
-            PlasmaComponents3.Label {
+
+            Caption { visible: row.isHeader; Layout.fillWidth: true; text: i18n("WORKFLOW") }
+            Primary { visible: !row.isHeader; Layout.fillWidth: true; text: row.dag.name || "" }
+            Secondary {
+                visible: row.twoLines && row.showSchedule
                 Layout.fillWidth: true
-                text: row.dag.name
-                font.bold: true
-                elide: Text.ElideRight
-            }
-            PlasmaComponents3.Label {
-                Layout.fillWidth: true
-                visible: !row.compact && row.showSchedule
                 text: row.dag.schedules && row.dag.schedules.length ? row.dag.schedules.join("  ") : i18n("no schedule")
                 font.family: "monospace"
-                font.pointSize: Kirigami.Theme.smallFont.pointSize
-                opacity: 0.6
-                elide: Text.ElideRight
             }
         }
 
-        // Last 10 runs, oldest left; hover a dot for its status and time
-        Row {
-            Layout.alignment: Qt.AlignVCenter
-            Layout.preferredWidth: 10 * (dotSize + spacing)
-            readonly property real dotSize: Math.round(Kirigami.Units.gridUnit * 0.45)
-            spacing: Math.round(Kirigami.Units.gridUnit * 0.2)
-            layoutDirection: Qt.RightToLeft
+        // Recent runs: dots on line 1 (oldest left), summary on line 2; hover a dot for details
+        ColumnLayout {
+            visible: row.historyCount > 0
+            Layout.alignment: Qt.AlignTop
+            // Extra gap so the dots don't crowd the NEXT column
+            Layout.rightMargin: Kirigami.Units.gridUnit
+            Layout.preferredWidth: row.historyWidth
+            Layout.minimumWidth: row.historyWidth
+            Layout.maximumWidth: row.historyWidth
+            spacing: 0
 
-            Repeater {
-                // RightToLeft + reversed model keeps the newest run next to NEXT/LAST
-                model: (row.dag.history || []).slice().reverse()
-                delegate: PlasmaCore.ToolTipArea {
-                    required property var modelData
-                    width: parent.dotSize
-                    height: parent.dotSize
-                    mainText: modelData.status.replace(/_/g, " ")
-                    subText: modelData.startedAt ? Fmt.whenLabel(new Date(modelData.startedAt), row.now, row.use24h) : ""
+            Caption { visible: row.isHeader; Layout.fillWidth: true; text: row.historyCaption }
+            Row {
+                visible: !row.isHeader
+                Layout.preferredHeight: row.lineHeight
+                spacing: row.dotGap
 
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: width / 2
-                        color: {
-                            switch (modelData.kind) {
-                            case "ok": return Kirigami.Theme.positiveTextColor;
-                            case "failed": return Kirigami.Theme.negativeTextColor;
-                            case "warning": return Kirigami.Theme.neutralTextColor;
-                            case "running": return Kirigami.Theme.highlightColor;
-                            default: return Kirigami.Theme.disabledTextColor;
+                Repeater {
+                    model: (row.dag.history || []).slice(-row.historyCount)
+                    delegate: PlasmaCore.ToolTipArea {
+                        required property var modelData
+                        width: row.dotSize
+                        height: row.lineHeight
+                        mainText: modelData.status.replace(/_/g, " ")
+                        subText: modelData.startedAt ? Fmt.whenLabel(new Date(modelData.startedAt), row.now, row.use24h) : ""
+
+                        Rectangle {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: row.dotSize
+                            height: width
+                            radius: width / 2
+                            opacity: 0.85
+                            color: {
+                                switch (modelData.kind) {
+                                case "ok": return Kirigami.Theme.positiveTextColor;
+                                case "failed": return Kirigami.Theme.negativeTextColor;
+                                case "warning": return Kirigami.Theme.neutralTextColor;
+                                case "running": return Kirigami.Theme.highlightColor;
+                                default: return Kirigami.Theme.disabledTextColor;
+                                }
                             }
                         }
-                        opacity: 0.85
                     }
                 }
             }
+            Secondary { Layout.fillWidth: true; text: Fmt.historySummary((row.dag.history || []).slice(-row.historyCount)) }
         }
 
-        // Next / last as two fixed-width columns: small caption over a large value
+        // NEXT and LAST: same two-line cell; hover for details (next: schedule + input, last: steps + output)
         Repeater {
-            model: [
-                { caption: i18n("NEXT"), value: row.nextText, color: row.nextColor, size: 1.25, kind: "next" },
-                { caption: i18n("LAST"), value: row.lastText, color: row.lastColor, size: 1.0, kind: "last" },
-            ]
-            // Hovering a column shows its details (next: schedule + input, last: steps + output)
+            // Static model: cells bind to row properties. A model holding the live values was
+            // rebuilt on every change, recreating the cells mid-load and crashing plasmashell.
+            model: ["next", "last"]
             delegate: PlasmaCore.ToolTipArea {
                 id: valueTip
-                required property var modelData
-                Layout.alignment: Qt.AlignVCenter
-                // Fixed width (min = max) so NEXT / LAST line up across rows
-                readonly property real columnWidth: Kirigami.Units.gridUnit * (row.use24h ? 6.5 : 8)
-                Layout.preferredWidth: columnWidth
-                Layout.minimumWidth: columnWidth
-                Layout.maximumWidth: columnWidth
-                Layout.leftMargin: Kirigami.Units.largeSpacing
+                required property string modelData
+                readonly property bool isNext: modelData === "next"
+                Layout.alignment: Qt.AlignTop
+                Layout.preferredWidth: row.timeWidth
+                Layout.minimumWidth: row.timeWidth
+                Layout.maximumWidth: row.timeWidth
                 implicitHeight: valueColumn.implicitHeight
 
-                mainText: modelData.kind === "next" ? i18n("Next run") : i18n("Last run")
-                subText: modelData.kind === "next" ? row.nextTooltip() : row.lastTooltip()
+                active: !row.isHeader
+                mainText: isNext ? i18n("Next run") : i18n("Last run")
+                subText: row.isHeader ? "" : isNext ? row.nextTooltip() : row.lastTooltip()
                 textFormat: Text.RichText
                 onAboutToShow: row.loadDetails()
 
                 // LAST is a link to that run's page in the dagu UI
                 MouseArea {
                     anchors.fill: parent
-                    enabled: valueTip.modelData.kind === "last" && row.dag.runId !== ""
+                    enabled: !row.isHeader && !valueTip.isNext && row.dag.runId !== ""
                     cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                     onClicked: row.lastRunActivated(row.dag)
                 }
@@ -264,22 +338,14 @@ PlasmaComponents3.ItemDelegate {
                     anchors.fill: parent
                     spacing: 0
 
-                    PlasmaComponents3.Label {
+                    Caption { visible: row.isHeader; Layout.fillWidth: true; text: valueTip.isNext ? i18n("NEXT") : i18n("LAST") }
+                    Primary {
+                        visible: !row.isHeader
                         Layout.fillWidth: true
-                        visible: !row.compact
-                        text: valueTip.modelData.caption
-                        font.pointSize: Kirigami.Theme.smallFont.pointSize
-                        font.letterSpacing: 1
-                        opacity: 0.55
+                        text: valueTip.isNext ? row.nextPrimary : row.lastPrimary
+                        color: valueTip.isNext ? row.nextColor : row.lastColor
                     }
-                    PlasmaComponents3.Label {
-                        Layout.fillWidth: true
-                        text: valueTip.modelData.value
-                        color: valueTip.modelData.color
-                        font.bold: true
-                        font.pointSize: Kirigami.Theme.defaultFont.pointSize * valueTip.modelData.size
-                        elide: Text.ElideRight
-                    }
+                    Secondary { Layout.fillWidth: true; text: (valueTip.isNext ? row.nextSecondary : row.lastSecondary) || " " }
                 }
             }
         }

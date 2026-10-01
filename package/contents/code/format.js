@@ -266,3 +266,12 @@ function historyItems(payload, max) {
         return { runId: r.dagRunId || '', status: status, kind: statusKind(status), startedAt: r.startedAt || '' };
     });
 }
+
+// "10/10 ok", "8/10 ok · 2 failed", "no runs".
+function historySummary(items) {
+    items = items || [];
+    if (!items.length) return 'no runs';
+    var ok = items.filter(function (h) { return h.kind === 'ok'; }).length;
+    var failed = items.filter(function (h) { return isFailure(h.kind); }).length;
+    return ok + '/' + items.length + ' ok' + (failed ? ' · ' + failed + ' failed' : '');
+}

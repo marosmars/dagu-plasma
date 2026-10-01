@@ -11,6 +11,7 @@ KCM.SimpleKCM {
     property alias cfg_refreshSeconds: refreshSeconds.value
     property var cfg_hiddenDags: []
     property string cfg_sortBy: "name"
+    property alias cfg_historyCount: historyCount.value
     property alias cfg_compactRows: compactRows.checked
     property alias cfg_showSchedule: showSchedule.checked
     property alias cfg_showDuration: showDuration.checked
@@ -21,6 +22,7 @@ KCM.SimpleKCM {
     property string cfg_serverUrlDefault
     property int cfg_refreshSecondsDefault
     property var cfg_hiddenDagsDefault
+    property int cfg_historyCountDefault
     property string cfg_sortByDefault
     property bool cfg_compactRowsDefault
     property bool cfg_showScheduleDefault
@@ -124,6 +126,14 @@ KCM.SimpleKCM {
             id: showSchedule
             text: i18n("Show cron schedule")
             enabled: !compactRows.checked
+        }
+        QQC2.SpinBox {
+            id: historyCount
+            Kirigami.FormData.label: i18n("Run history dots:")
+            from: 0
+            to: 20
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.text: i18n("How many recent runs to show per workflow; 0 hides the column")
         }
         QQC2.CheckBox {
             id: showDuration
