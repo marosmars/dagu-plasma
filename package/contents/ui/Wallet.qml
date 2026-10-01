@@ -9,76 +9,76 @@ QtObject {
     readonly property string appId: "dagu-plasma"
     property int handle: -1
     property string error: ""
-    // Called when a wallet call fails, so callers waiting on a reply can carry on
-    property var onFailure: null
 
     // Typed replies come back wrapped ({ value: ... }); return the plain value
     function unwrap(v) {
         return v !== null && v !== undefined && v.value !== undefined ? v.value : v;
     }
 
-    // signature documents the call only: passing it to asyncCall makes it drop the arguments
-    function call(member, signature, args, resolve, reject) {
+    // Calls org.kde.KWallet.<member>. No `signature` key: asyncCall drops the arguments when given one.
+    function call(member, args, resolve, fail) {
         DBus.SessionBus.asyncCall({
             service: "org.kde.kwalletd6",
             path: "/modules/kwalletd6",
             iface: "org.kde.KWallet",
             member: member,
             arguments: args,
-        }, reply => resolve({ value: unwrap(reply.value) }), reject || function (reply) {
-            // reject receives the DBusPendingReply; the D-Bus error sits in reply.error
+        }, reply => resolve(unwrap(reply.value)), function (reply) {
+            // reject receives the pending reply; the D-Bus error sits in reply.error
             var err = reply && reply.error ? reply.error.name + ": " + reply.error.message : String(reply);
             wallet.error = i18n("KWallet error: %1", err);
-            console.warn("dagu widget: KWallet", member, "failed:", wallet.error);
-            if (wallet.onFailure) wallet.onFailure();
+            console.warn("dagu widget: KWallet", member, "failed:", err);
+            if (fail) fail();
         });
     }
 
-    // Calls done(handle) with an open wallet handle, opening the network wallet once.
-    function withHandle(done) {
+    // done(handle) with an open handle to the network wallet, opened once and reused
+    function withHandle(done, fail) {
         if (handle >= 0) {
-            call("isOpen", "i", [new DBus.int32(handle)], function (reply) {
-                if (reply.value) done(handle);
-                else { wallet.handle = -1; withHandle(done); }
-            });
+            call("isOpen", [new DBus.int32(handle)], function (open) {
+                if (open) done(handle);
+                else { wallet.handle = -1; withHandle(done, fail); }
+            }, fail);
             return;
         }
-        call("networkWallet", "", [], function (reply) {
-            call("open", "sxs", [new DBus.string(reply.value), new DBus.int64(0), new DBus.string(appId)],
-                function (opened) {
-                    if (opened.value < 0) {
-                        wallet.error = i18n("KWallet could not be opened.");
-                        return;
-                    }
-                    wallet.handle = opened.value;
-                    wallet.error = "";
-                    done(opened.value);
-                });
-        });
+        call("networkWallet", [], function (name) {
+            call("open", [new DBus.string(name), new DBus.int64(0), new DBus.string(appId)], function (h) {
+                if (h < 0) {
+                    wallet.error = i18n("KWallet could not be opened.");
+                    if (fail) fail();
+                    return;
+                }
+                wallet.handle = h;
+                wallet.error = "";
+                done(h);
+            }, fail);
+        }, fail);
     }
 
-    // read(key, cb): cb(secret) with "" when missing
-    function read(key, cb) {
+    // read(key, cb, fail): cb(secret), "" when there is no entry
+    function read(key, cb, fail) {
         if (!key) { cb(""); return; }
         withHandle(function (h) {
-            call("readPassword", "isss", [new DBus.int32(h), new DBus.string(folder), new DBus.string(key), new DBus.string(appId)],
-                reply => cb(reply.value || ""));
-        });
+            call("readPassword", [new DBus.int32(h), new DBus.string(folder), new DBus.string(key), new DBus.string(appId)],
+                value => cb(value || ""), fail);
+        }, fail);
     }
 
-    // write(key, value, cb): stores value, or removes the entry when value is empty
+    // write(key, value, cb): cb(ok). Stores value, or removes the entry when value is empty.
     function write(key, value, cb) {
-        if (!key) { if (cb) cb(false); return; }
+        var done = cb || function () {};
+        var fail = () => done(false);
+        if (!key) { fail(); return; }
         withHandle(function (h) {
-            call("createFolder", "iss", [new DBus.int32(h), new DBus.string(folder), new DBus.string(appId)], function () {
+            var base = [new DBus.int32(h), new DBus.string(folder), new DBus.string(key)];
+            call("createFolder", [new DBus.int32(h), new DBus.string(folder), new DBus.string(appId)], function () {
                 if (value) {
-                    call("writePassword", "issss", [new DBus.int32(h), new DBus.string(folder), new DBus.string(key),
-                        new DBus.string(value), new DBus.string(appId)], reply => { if (cb) cb(reply.value === 0); });
+                    call("writePassword", base.concat([new DBus.string(value), new DBus.string(appId)]),
+                        result => done(result === 0), fail);
                 } else {
-                    call("removeEntry", "isss", [new DBus.int32(h), new DBus.string(folder), new DBus.string(key),
-                        new DBus.string(appId)], reply => { if (cb) cb(reply.value === 0); });
+                    call("removeEntry", base.concat([new DBus.string(appId)]), result => done(result === 0), fail);
                 }
-            });
-        });
+            }, fail);
+        }, fail);
     }
 }

@@ -2,6 +2,9 @@
 
 Date: 2026-10-01
 
+> Original design. The widget has grown since (history, run/stop, auth, hover details);
+> see the README for current behaviour.
+
 ## Goal
 
 A KDE Plasma 6 widget that shows, at a glance, the Dagu workflows running on this

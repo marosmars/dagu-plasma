@@ -7,7 +7,7 @@
         "Category": "System Information",
         "Authors": [{ "Name": "Maros Marsalek" }],
         "License": "MIT",
-        "Version": "0.1.0",
+        "Version": "0.2.0",
         "Website": "https://github.com/marosmars/dagu-plasma"
     },
     "KPackageStructure": "Plasma/Applet",

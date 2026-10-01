@@ -76,10 +76,12 @@ PlasmoidItem {
             fetchDags();
             return;
         }
-        // If KWallet fails, fetch anyway: dagu's 401 then explains what is missing
-        wallet.onFailure = function () { root.secret = ""; root.fetchDags(); };
         wallet.read(walletKey, function (value) {
             root.secret = value;
+            root.fetchDags();
+        }, function () {
+            // KWallet failed: fetch anyway so dagu's 401 explains what is missing
+            root.secret = "";
             root.fetchDags();
         });
     }
@@ -160,7 +162,6 @@ PlasmoidItem {
     }
 
     function notifyFailure(dag) {
-        console.info("dagu widget: notifying failure of", dag.name);
         var n = failureNotification.createObject(root, {
             title: i18n("Dagu: %1 %2", dag.name, dag.status.replace(/_/g, " ")),
             text: dag.startedAt ? i18n("Run started %1", Fmt.whenLabel(new Date(dag.startedAt), new Date(), cfg.use24h)) : "",

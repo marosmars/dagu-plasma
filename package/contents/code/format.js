@@ -267,13 +267,12 @@ function historyItems(payload, max) {
     });
 }
 
-// "10/10 ok", "8/10 ok · 2 failed", "no runs".
+// "5/5 ok", "3/5 ok", "no runs" (the dots already show which runs failed).
 function historySummary(items) {
     items = items || [];
     if (!items.length) return 'no runs';
     var ok = items.filter(function (h) { return h.kind === 'ok'; }).length;
-    var failed = items.filter(function (h) { return isFailure(h.kind); }).length;
-    return ok + '/' + items.length + ' ok' + (failed ? ' · ' + failed + ' failed' : '');
+    return ok + '/' + items.length + ' ok';
 }
 
 // ---- Authentication ----

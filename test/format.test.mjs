@@ -147,13 +147,13 @@ test('expandVars substitutes ${VAR} and $VAR from a KEY=VALUE env list', () => {
 });
 
 test('shortPath abbreviates the home directory', () => {
-    assert.equal(tip.shortPath('/home/maros/Projects/x'), '~/Projects/x');
+    assert.equal(tip.shortPath('/home/alice/Projects/x'), '~/Projects/x');
     assert.equal(tip.shortPath('/opt/x'), '/opt/x');
     assert.equal(tip.shortPath(''), '');
 });
 
 const DETAIL = {
-    env: ['NODE_BIN=/home/maros/.nvm/versions/node/v22/bin/node', 'PROJECT_DIR=/home/maros/p'],
+    env: ['NODE_BIN=/home/alice/.nvm/versions/node/v22/bin/node', 'PROJECT_DIR=/home/alice/p'],
     steps: [
         {
             name: 'run-daily-report',
@@ -231,7 +231,7 @@ test('historySummary counts ok and failed runs', () => {
     const { historySummary } = loadQmlJs('format.js', ['historySummary']);
     const h = kinds => kinds.map(kind => ({ kind }));
     assert.equal(historySummary(h(['ok', 'ok', 'ok'])), '3/3 ok');
-    assert.equal(historySummary(h(['ok', 'failed', 'warning', 'ok'])), '2/4 ok · 2 failed');
+    assert.equal(historySummary(h(['ok', 'failed', 'warning', 'ok'])), '2/4 ok');
     assert.equal(historySummary(h(['ok', 'running'])), '1/2 ok');
     assert.equal(historySummary([]), 'no runs');
     assert.equal(historySummary(undefined), 'no runs');

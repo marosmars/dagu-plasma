@@ -66,7 +66,9 @@ PlasmaComponents3.ItemDelegate {
     readonly property real dotSize: Math.round(Kirigami.Units.gridUnit * 0.45)
     readonly property real dotGap: Math.round(Kirigami.Units.gridUnit * 0.2)
     readonly property string historyCaption: i18np("LAST RUN", "LAST %1 RUNS", historyCount)
-    readonly property real historyWidth: Math.max(historyCount * (dotSize + dotGap), captionMetrics.advanceWidth(historyCaption))
+    // Caption width plus its letter spacing (FontMetrics ignores it)
+    readonly property real historyWidth: Math.max(historyCount * (dotSize + dotGap),
+        captionMetrics.advanceWidth(historyCaption) + historyCaption.length + Kirigami.Units.smallSpacing)
     readonly property real timeWidth: Kirigami.Units.gridUnit * (use24h ? 6 : 7.5)
     readonly property bool twoLines: !compact && !isHeader
 
