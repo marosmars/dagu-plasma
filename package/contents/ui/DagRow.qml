@@ -20,6 +20,7 @@ PlasmaComponents3.ItemDelegate {
     property bool showDuration: true
     property bool use24h: true
     property string baseUrl: ""
+    property string authHeader: ""
     property int historyCount: 5
     property bool showSeparator: true
 
@@ -95,6 +96,7 @@ PlasmaComponents3.ItemDelegate {
             }
         };
         xhr.open("GET", baseUrl + path);
+        if (authHeader) xhr.setRequestHeader("Authorization", authHeader);
         xhr.send();
     }
 

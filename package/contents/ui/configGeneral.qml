@@ -4,11 +4,16 @@ import QtQuick.Controls as QQC2
 import org.kde.kirigami as Kirigami
 import org.kde.kcmutils as KCM
 
+import "../code/format.js" as Fmt
+
 KCM.SimpleKCM {
     id: page
 
     property alias cfg_serverUrl: serverUrl.text
     property alias cfg_refreshSeconds: refreshSeconds.value
+    property string cfg_authMode: "none"
+    property alias cfg_username: username.text
+
     property var cfg_hiddenDags: []
     property string cfg_sortBy: "name"
     property alias cfg_historyCount: historyCount.value
@@ -21,6 +26,9 @@ KCM.SimpleKCM {
     // Plasma passes each option's default as cfg_<name>Default; the page must declare them
     property string cfg_serverUrlDefault
     property int cfg_refreshSecondsDefault
+    property string cfg_authModeDefault
+    property string cfg_usernameDefault
+
     property var cfg_hiddenDagsDefault
     property int cfg_historyCountDefault
     property string cfg_sortByDefault
@@ -45,14 +53,43 @@ KCM.SimpleKCM {
                 names = dags.map(d => (d.dag && d.dag.name) || d.fileName);
                 page.fetchError = "";
             } catch (e) {
-                page.fetchError = i18n("Could not load workflows from %1", serverUrl.text);
+                page.fetchError = Fmt.requestError(xhr.status === 200 ? -1 : xhr.status, serverUrl.text)
+                    || i18n("Could not load workflows from %1", serverUrl.text);
             }
             (page.cfg_hiddenDags || []).forEach(n => { if (names.indexOf(n) < 0) names.push(n); });
             names.sort();
             page.dagNames = names;
         };
         xhr.open("GET", serverUrl.text.replace(/\/+$/, "") + "/api/v2/dags?perPage=200");
+        var secret = cfg_authMode === "basic" ? password.text : apiToken.text;
+        var header = Fmt.authHeader(cfg_authMode, username.text, secret, secret, Qt.btoa);
+        if (header) xhr.setRequestHeader("Authorization", header);
         xhr.send();
+    }
+
+    // The password / token is kept in KWallet, saved as soon as the field is edited
+    Wallet { id: wallet }
+    property string walletStatus: ""
+    readonly property string walletKey: Fmt.walletKey(cfg_authMode, serverUrl.text, username.text)
+
+    function loadSecret() {
+        password.text = "";
+        apiToken.text = "";
+        walletStatus = "";
+        if (!walletKey) return;
+        wallet.read(walletKey, function (value) {
+            if (page.cfg_authMode === "basic") password.text = value;
+            else apiToken.text = value;
+            page.walletStatus = value ? i18n("Loaded from KWallet.") : "";
+        });
+    }
+
+    function saveSecret(value) {
+        wallet.write(walletKey, value, function (ok) {
+            page.walletStatus = !ok ? (wallet.error || i18n("Could not save to KWallet."))
+                : value ? i18n("Saved in KWallet.") : i18n("Removed from KWallet.");
+            page.loadDagNames();
+        });
     }
 
     function setHidden(name, hidden) {
@@ -61,7 +98,7 @@ KCM.SimpleKCM {
         cfg_hiddenDags = list;
     }
 
-    Component.onCompleted: loadDagNames()
+    Component.onCompleted: { loadSecret(); loadDagNames(); }
 
     Kirigami.FormLayout {
         QQC2.TextField {
@@ -69,6 +106,47 @@ KCM.SimpleKCM {
             Kirigami.FormData.label: i18n("Dagu server URL:")
             placeholderText: "http://localhost:8085"
             onEditingFinished: page.loadDagNames()
+        }
+        QQC2.ComboBox {
+            id: authMode
+            Kirigami.FormData.label: i18n("Authentication:")
+            textRole: "text"
+            valueRole: "value"
+            model: [
+                { text: i18n("None"), value: "none" },
+                { text: i18n("Username and password (basic)"), value: "basic" },
+                { text: i18n("API token (bearer)"), value: "token" },
+            ]
+            currentIndex: Math.max(0, indexOfValue(page.cfg_authMode))
+            onActivated: { page.cfg_authMode = currentValue; page.loadSecret(); page.loadDagNames(); }
+        }
+        QQC2.TextField {
+            id: username
+            visible: page.cfg_authMode === "basic"
+            Kirigami.FormData.label: i18n("Username:")
+            onEditingFinished: { page.loadSecret(); page.loadDagNames(); }
+        }
+        Kirigami.PasswordField {
+            id: password
+            visible: page.cfg_authMode === "basic"
+            Kirigami.FormData.label: i18n("Password:")
+            onEditingFinished: page.saveSecret(text)
+        }
+        Kirigami.PasswordField {
+            id: apiToken
+            visible: page.cfg_authMode === "token"
+            Kirigami.FormData.label: i18n("API token:")
+            onEditingFinished: page.saveSecret(text.trim())
+        }
+        QQC2.Label {
+            visible: page.cfg_authMode !== "none"
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 22
+            wrapMode: Text.Wrap
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            opacity: 0.7
+            text: (page.walletStatus ? page.walletStatus + " " : "")
+                + (wallet.error ? wallet.error + " " : "")
+                + i18n("The password or token is stored in KWallet, not in the Plasma config. HTTPS certificates are verified; for a self-signed certificate, add it to the system trust store.")
         }
         QQC2.SpinBox {
             id: refreshSeconds

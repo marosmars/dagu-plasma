@@ -25,6 +25,20 @@ PlasmoidItem {
 
     readonly property var cfg: Plasmoid.configuration
     readonly property string baseUrl: cfg.serverUrl.replace(/\/+$/, "")
+    // "Basic …" / "Bearer …" / "" — sent with every request
+    // The password / token lives in KWallet, never in the Plasma config
+    property string secret: ""
+    readonly property string walletKey: Fmt.walletKey(cfg.authMode, cfg.serverUrl, cfg.username)
+    readonly property string authHeader: Fmt.authHeader(cfg.authMode, cfg.username, secret, secret, Qt.btoa)
+
+    Wallet { id: wallet }
+    // Why the last refresh failed ("" when it worked)
+    property string errorText: ""
+
+    function openRequest(xhr, method, path) {
+        xhr.open(method, baseUrl + path);
+        if (authHeader) xhr.setRequestHeader("Authorization", authHeader);
+    }
     // Visible rows, each with its computed next run, in the configured order
     readonly property var shownDags: Fmt.sortRows(
         Fmt.visibleRows(dags, cfg.hiddenDags).map(d => Object.assign({}, d, {
@@ -45,7 +59,7 @@ PlasmoidItem {
     Plasmoid.icon: "view-calendar-tasks"
     toolTipMainText: i18n("Dagu workflows")
     toolTipSubText: {
-        if (!reachable) return i18n("Dagu not reachable at %1", baseUrl);
+        if (!reachable) return errorText;
         var failed = shownDags.filter(d => d.kind === "failed" || d.kind === "warning").length;
         return failed ? i18np("%1 workflow failed", "%1 workflows failed", failed)
                       : i18np("%1 workflow, all OK", "%1 workflows, all OK", shownDags.length);
@@ -55,7 +69,22 @@ PlasmoidItem {
     switchWidth: Kirigami.Units.gridUnit * 14
     switchHeight: Kirigami.Units.gridUnit * 6
 
+    // Re-read the secret first (the settings page may have changed it), then fetch
     function refresh() {
+        if (!walletKey) {
+            secret = "";
+            fetchDags();
+            return;
+        }
+        // If KWallet fails, fetch anyway: dagu's 401 then explains what is missing
+        wallet.onFailure = function () { root.secret = ""; root.fetchDags(); };
+        wallet.read(walletKey, function (value) {
+            root.secret = value;
+            root.fetchDags();
+        });
+    }
+
+    function fetchDags() {
         now = new Date();
         var xhr = new XMLHttpRequest();
         xhr.onreadystatechange = function () {
@@ -71,6 +100,7 @@ PlasmoidItem {
                     root.reachable = true;
                     root.loaded = true;
                     root.lastOk = new Date();
+                    root.errorText = "";
                     root.loadHistory(rows);
                     return;
                 } catch (e) {
@@ -78,8 +108,10 @@ PlasmoidItem {
                 }
             }
             root.reachable = false;
+            root.errorText = Fmt.requestError(xhr.status === 200 ? -1 : xhr.status, root.baseUrl)
+                || i18n("Dagu sent an unreadable response.");
         };
-        xhr.open("GET", baseUrl + "/api/v2/dags?perPage=200");
+        openRequest(xhr, "GET", "/api/v2/dags?perPage=200");
         xhr.send();
     }
 
@@ -97,7 +129,7 @@ PlasmoidItem {
                     console.warn("dagu widget: bad history JSON", e);
                 }
             };
-            xhr.open("GET", baseUrl + "/api/v2/dags/" + encodeURIComponent(d.fileName) + "/dag-runs?limit="
+            root.openRequest(xhr, "GET", "/api/v2/dags/" + encodeURIComponent(d.fileName) + "/dag-runs?limit="
                 + Math.max(1, root.cfg.historyCount));
             xhr.send();
         });
@@ -111,7 +143,7 @@ PlasmoidItem {
             if (xhr.status !== 200) console.warn("dagu widget:", action, dag.fileName, "failed:", xhr.status, xhr.responseText);
             refreshSoon.restart();
         };
-        xhr.open("POST", baseUrl + "/api/v2/dags/" + encodeURIComponent(dag.fileName) + "/" + action);
+        openRequest(xhr, "POST", "/api/v2/dags/" + encodeURIComponent(dag.fileName) + "/" + action);
         xhr.setRequestHeader("Content-Type", "application/json");
         xhr.send("{}");
     }
@@ -302,9 +334,8 @@ PlasmoidItem {
                 visible: !root.reachable
                 wrapMode: Text.WordWrap
                 color: Kirigami.Theme.negativeTextColor
-                text: root.loaded
-                    ? i18n("Dagu not reachable. Last update %1.", Fmt.whenLabel(root.lastOk, root.now, root.cfg.use24h))
-                    : i18n("Dagu not reachable at %1.", root.baseUrl)
+                text: root.errorText + (root.loaded
+                    ? " " + i18n("Last update %1.", Fmt.whenLabel(root.lastOk, root.now, root.cfg.use24h)) : "")
             }
 
             // Column captions: a DagRow in header mode, outside the ListView
@@ -333,6 +364,7 @@ PlasmoidItem {
                     showDuration: root.cfg.showDuration
                     use24h: root.cfg.use24h
                     baseUrl: root.baseUrl
+                    authHeader: root.authHeader
                     historyCount: root.cfg.historyCount
                     showSeparator: index < list.count - 1
                     onActivated: fileName => root.openUrl("/dags/" + encodeURIComponent(fileName))

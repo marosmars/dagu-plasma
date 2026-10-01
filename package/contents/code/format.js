@@ -275,3 +275,32 @@ function historySummary(items) {
     var failed = items.filter(function (h) { return isFailure(h.kind); }).length;
     return ok + '/' + items.length + ' ok' + (failed ? ' · ' + failed + ' failed' : '');
 }
+
+// ---- Authentication ----
+
+// Authorization header value for the configured mode ("none", "basic", "token"), or "".
+// b64 is the base64 encoder (Qt.btoa in QML).
+function authHeader(mode, username, password, token, b64) {
+    if (mode === 'basic' && username) return 'Basic ' + b64(username + ':' + (password || ''));
+    var t = (token || '').trim();
+    if (mode === 'token' && t) return 'Bearer ' + t;
+    return '';
+}
+
+// User-facing message for a failed request; "" for success. status 0 = no response.
+function requestError(status, baseUrl) {
+    if (status === 200) return '';
+    if (status === 0) return 'Dagu not reachable at ' + baseUrl + '.';
+    if (status === 401 || status === 403) {
+        return 'Dagu rejected the credentials (HTTP ' + status + '). Check the widget settings.';
+    }
+    return 'Dagu returned HTTP ' + status + '.';
+}
+
+// KWallet entry name for the secret of this mode/server/user; "" when nothing is stored.
+function walletKey(mode, serverUrl, username) {
+    var url = (serverUrl || '').replace(/\/+$/, '');
+    if (mode === 'basic' && username) return 'basic ' + username + '@' + url;
+    if (mode === 'token') return 'token @' + url;
+    return '';
+}

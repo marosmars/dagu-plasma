@@ -236,3 +236,32 @@ test('historySummary counts ok and failed runs', () => {
     assert.equal(historySummary([]), 'no runs');
     assert.equal(historySummary(undefined), 'no runs');
 });
+
+const auth = loadQmlJs('format.js', ['authHeader', 'requestError']);
+
+test('authHeader builds Basic / Bearer headers, empty when off or incomplete', () => {
+    const b64 = s => Buffer.from(s, 'utf8').toString('base64');
+    assert.equal(auth.authHeader('basic', 'tester', 's3cret', '', b64), 'Basic dGVzdGVyOnMzY3JldA==');
+    assert.equal(auth.authHeader('token', '', '', 'abc123', b64), 'Bearer abc123');
+    assert.equal(auth.authHeader('token', '', '', '  abc123 \n', b64), 'Bearer abc123');
+    assert.equal(auth.authHeader('none', 'u', 'p', 't', b64), '');
+    assert.equal(auth.authHeader('basic', '', 'p', '', b64), '');
+    assert.equal(auth.authHeader('token', '', '', '', b64), '');
+    assert.equal(auth.authHeader(undefined, '', '', '', b64), '');
+});
+
+test('requestError explains a failed request', () => {
+    assert.equal(auth.requestError(0, 'http://x'), 'Dagu not reachable at http://x.');
+    assert.equal(auth.requestError(401, 'http://x'), 'Dagu rejected the credentials (HTTP 401). Check the widget settings.');
+    assert.equal(auth.requestError(403, 'http://x'), 'Dagu rejected the credentials (HTTP 403). Check the widget settings.');
+    assert.equal(auth.requestError(500, 'http://x'), 'Dagu returned HTTP 500.');
+    assert.equal(auth.requestError(200, 'http://x'), '');
+});
+
+test('walletKey identifies the secret per mode, server and user', () => {
+    const { walletKey } = loadQmlJs('format.js', ['walletKey']);
+    assert.equal(walletKey('basic', 'http://localhost:8085/', 'tester'), 'basic tester@http://localhost:8085');
+    assert.equal(walletKey('token', 'http://localhost:8085', 'ignored'), 'token @http://localhost:8085');
+    assert.equal(walletKey('none', 'http://x', 'u'), '');
+    assert.equal(walletKey('basic', 'http://x', ''), '');
+});
