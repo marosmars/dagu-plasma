@@ -167,6 +167,32 @@ PlasmoidItem {
             }
         }
 
+        // Own right-click menu: the rows and buttons otherwise swallow Plasma's context menu
+        MouseArea {
+            anchors.fill: parent
+            z: 10
+            acceptedButtons: Qt.RightButton
+            onClicked: mouse => contextMenu.popup()
+        }
+        PlasmaComponents3.Menu {
+            id: contextMenu
+            PlasmaComponents3.MenuItem {
+                text: i18n("Configure Dagu Workflows…")
+                icon.name: "configure"
+                onTriggered: Plasmoid.internalAction("configure").trigger()
+            }
+            PlasmaComponents3.MenuItem {
+                text: i18n("Open Dagu")
+                icon.name: "internet-web-browser"
+                onTriggered: root.openUrl("/")
+            }
+            PlasmaComponents3.MenuItem {
+                text: i18n("Refresh")
+                icon.name: "view-refresh"
+                onTriggered: root.refresh()
+            }
+        }
+
         ColumnLayout {
             anchors.fill: parent
             spacing: 0
@@ -197,6 +223,7 @@ PlasmoidItem {
                     showSchedule: root.cfg.showSchedule
                     showDuration: root.cfg.showDuration
                     use24h: root.cfg.use24h
+                    baseUrl: root.baseUrl
                     onActivated: fileName => root.openUrl("/dags/" + encodeURIComponent(fileName))
                 }
             }

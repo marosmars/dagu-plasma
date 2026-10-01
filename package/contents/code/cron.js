@@ -102,3 +102,16 @@ function nextRunAny(exprs, from) {
     }
     return best;
 }
+
+// The next `count` run times across several expressions, in order.
+function nextRuns(exprs, from, count) {
+    var out = [];
+    var t = from;
+    while (out.length < count) {
+        var n = nextRunAny(exprs, t);
+        if (!n) break;
+        out.push(n);
+        t = n;
+    }
+    return out;
+}

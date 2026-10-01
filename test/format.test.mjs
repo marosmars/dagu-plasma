@@ -134,3 +134,67 @@ test('newFailures only reports failures that are new since the previous fetch', 
     assert.deepEqual(
         more.newFailures([row('a', 'running', null, t1)], [row('a', 'warning', null, t1)]).map(r => r.name), ['a']);
 });
+
+const tip = loadQmlJs('format.js', ['expandVars', 'shortPath', 'stepInputs', 'escapeHtml', 'nextTooltipHtml', 'lastTooltipHtml']);
+
+test('expandVars substitutes ${VAR} and $VAR from a KEY=VALUE env list', () => {
+    const env = ['NODE_BIN=/opt/node/bin/node', 'PROJECT_DIR=/home/x/p'];
+    assert.equal(tip.expandVars('${NODE_BIN} run', env), '/opt/node/bin/node run');
+    assert.equal(tip.expandVars('cd $PROJECT_DIR', env), 'cd /home/x/p');
+    assert.equal(tip.expandVars('${MISSING}', env), '${MISSING}');
+    assert.equal(tip.expandVars('a=b', undefined), 'a=b');
+});
+
+test('shortPath abbreviates the home directory', () => {
+    assert.equal(tip.shortPath('/home/maros/Projects/x'), '~/Projects/x');
+    assert.equal(tip.shortPath('/opt/x'), '/opt/x');
+    assert.equal(tip.shortPath(''), '');
+});
+
+const DETAIL = {
+    env: ['NODE_BIN=/home/maros/.nvm/versions/node/v22/bin/node', 'PROJECT_DIR=/home/maros/p'],
+    steps: [
+        {
+            name: 'run-daily-report',
+            dir: '${PROJECT_DIR}',
+            commands: [{ command: '${NODE_BIN}', args: ['--env-file=.env.local', 'scripts/daily-report.js'] }],
+        },
+        { name: 'shell', command: 'echo hi' },
+    ],
+};
+
+test('stepInputs expands commands, shortens the program to its name, keeps dir', () => {
+    assert.deepEqual(tip.stepInputs(DETAIL), [
+        { name: 'run-daily-report', dir: '~/p', command: 'node --env-file=.env.local scripts/daily-report.js' },
+        { name: 'shell', dir: '', command: 'echo hi' },
+    ]);
+    assert.deepEqual(tip.stepInputs({}), []);
+});
+
+test('escapeHtml', () => {
+    assert.equal(tip.escapeHtml('<a & "b">'), '&lt;a &amp; &quot;b&quot;&gt;');
+});
+
+test('nextTooltipHtml shows schedule, upcoming runs and inputs', () => {
+    const html = tip.nextTooltipHtml({ schedules: ['0 1/6 * * *'] }, ['13:00', '19:00'], DETAIL);
+    assert.match(html, /0 1\/6 \* \* \*/);
+    assert.match(html, /13:00 · 19:00/);
+    assert.match(html, /node --env-file=.env.local scripts\/daily-report.js/);
+    assert.match(html, /~\/p/);
+    assert.match(tip.nextTooltipHtml({ schedules: [] }, [], null), /no schedule/);
+});
+
+test('lastTooltipHtml shows status, steps and escaped output tails', () => {
+    const run = {
+        statusLabel: 'failed',
+        nodes: [{ step: { name: 'a' }, statusLabel: 'failed', startedAt: '2026-10-01T08:00:00+02:00', finishedAt: '2026-10-01T08:00:05+02:00' }],
+    };
+    const logs = { a: { stdout: 'line <1>\nline 2', stderr: 'boom', stdoutTotal: 30, stderrTotal: 1 } };
+    const html = tip.lastTooltipHtml(run, logs, '08:00 → 08:00 (5s)');
+    assert.match(html, /failed/);
+    assert.match(html, /08:00 → 08:00 \(5s\)/);
+    assert.match(html, /line &lt;1&gt;/);
+    assert.match(html, /boom/);
+    assert.match(html, /last 2 of 30 lines/);
+    assert.match(tip.lastTooltipHtml(null, {}, ''), /never run/);
+});

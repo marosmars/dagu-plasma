@@ -54,3 +54,15 @@ test('nextRunAny picks the earliest of several schedules', () => {
     assert.equal(nextRunAny([], d(2026, 10, 1, 10, 0)), null);
     assert.equal(nextRunAny(['@daily'], d(2026, 10, 1, 10, 0)), null);
 });
+
+test('nextRuns lists the next n run times across schedules', () => {
+    const { nextRuns } = loadQmlJs('cron.js', ['nextRuns']);
+    assert.deepEqual(nextRuns(['0 1/6 * * *'], d(2026, 10, 1, 10, 40), 4), [
+        d(2026, 10, 1, 13, 0), d(2026, 10, 1, 19, 0), d(2026, 10, 2, 1, 0), d(2026, 10, 2, 7, 0),
+    ]);
+    assert.deepEqual(nextRuns(['0 8 * * *', '0 12 * * *'], d(2026, 10, 1, 10, 0), 3), [
+        d(2026, 10, 1, 12, 0), d(2026, 10, 2, 8, 0), d(2026, 10, 2, 12, 0),
+    ]);
+    assert.deepEqual(nextRuns([], d(2026, 10, 1, 10, 0), 3), []);
+    assert.deepEqual(nextRuns(['@daily'], d(2026, 10, 1, 10, 0), 3), []);
+});

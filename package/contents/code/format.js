@@ -148,3 +148,99 @@ function newFailures(prevRows, rows) {
         return !p || !isFailure(p.kind) || p.startedAt !== r.startedAt;
     });
 }
+
+// ---- Hover details ----
+
+function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Substitute ${VAR} / $VAR from a dagu env list of "KEY=VALUE" strings.
+function expandVars(text, envList) {
+    var env = {};
+    (envList || []).forEach(function (kv) {
+        var i = kv.indexOf('=');
+        if (i > 0) env[kv.slice(0, i)] = kv.slice(i + 1);
+    });
+    return String(text).replace(/\$\{(\w+)\}|\$(\w+)/g, function (m, a, b) {
+        var key = a || b;
+        return env[key] !== undefined ? env[key] : m;
+    });
+}
+
+function shortPath(p) {
+    return (p || '').replace(/^\/home\/[^/]+(?=\/|$)/, '~');
+}
+
+// [{ name, dir, command }] for each step: vars expanded, program shortened to its name.
+function stepInputs(detail) {
+    var env = (detail && detail.env) || [];
+    return ((detail && detail.steps) || []).map(function (step) {
+        var cmds = step.commands && step.commands.length
+            ? step.commands
+            : [{ command: step.command || '', args: step.args || [] }];
+        var command = cmds.map(function (c) {
+            var program = expandVars(c.command || '', env);
+            if (/^\//.test(program) && program.indexOf(' ') < 0) program = program.split('/').pop();
+            return [program].concat((c.args || []).map(function (a) { return expandVars(a, env); })).join(' ');
+        }).join(' && ');
+        return { name: step.name, dir: shortPath(expandVars(step.dir || '', env)), command: command };
+    });
+}
+
+var MONO = 'font-family:monospace; white-space:pre-wrap;';
+
+function section(title) {
+    return '<p style="margin-top:6px; margin-bottom:2px;"><b>' + escapeHtml(title) + '</b></p>';
+}
+
+// Tooltip for the NEXT column: schedule, upcoming runs, step inputs.
+function nextTooltipHtml(row, upcoming, detail) {
+    var html = section('Schedule');
+    html += '<p style="' + MONO + '">' + (row.schedules && row.schedules.length
+        ? escapeHtml(row.schedules.join('   ')) : 'no schedule') + '</p>';
+    if (upcoming && upcoming.length) {
+        html += section('Upcoming') + '<p>' + escapeHtml(upcoming.join(' · ')) + '</p>';
+    }
+    var inputs = stepInputs(detail);
+    if (inputs.length) {
+        html += section('Input');
+        inputs.forEach(function (s) {
+            html += '<p style="margin-bottom:2px;">' + escapeHtml(s.name)
+                + (s.dir ? ' <span style="opacity:0.7">in ' + escapeHtml(s.dir) + '</span>' : '') + '</p>'
+                + '<p style="' + MONO + ' margin-left:8px;">' + escapeHtml(s.command) + '</p>';
+        });
+    } else if (!detail) {
+        html += '<p style="opacity:0.7">loading…</p>';
+    }
+    return html;
+}
+
+function tailBlock(label, text, total) {
+    if (!text) return '';
+    var shown = text.split('\n').length;
+    var note = total > shown ? ' <span style="opacity:0.7">(last ' + shown + ' of ' + total + ' lines)</span>' : '';
+    return '<p style="margin-top:4px; margin-bottom:0;">' + label + note + '</p>'
+        + '<p style="' + MONO + ' margin-left:8px;">' + escapeHtml(text) + '</p>';
+}
+
+// Tooltip for the LAST column: run status/times, per-step status and output tails.
+// logs: { stepName: { stdout, stderr, stdoutTotal, stderrTotal } }
+function lastTooltipHtml(run, logs, timesLabel) {
+    if (!run) return '<p>never run</p>';
+    var html = '<p><b>' + escapeHtml((run.statusLabel || '').replace(/_/g, ' ')) + '</b>'
+        + (timesLabel ? '  ' + escapeHtml(timesLabel) : '') + '</p>';
+    (run.nodes || []).forEach(function (node) {
+        var name = (node.step && node.step.name) || '';
+        var dur = durationLabel(node.startedAt, node.finishedAt);
+        html += section(name + ' — ' + (node.statusLabel || '').replace(/_/g, ' ') + (dur ? ' · ' + dur : ''));
+        var log = (logs || {})[name];
+        if (!log) {
+            html += '<p style="opacity:0.7">loading output…</p>';
+            return;
+        }
+        var out = tailBlock('stdout', log.stdout, log.stdoutTotal) + tailBlock('stderr', log.stderr, log.stderrTotal);
+        html += out || '<p style="opacity:0.7">no output</p>';
+    });
+    return html;
+}

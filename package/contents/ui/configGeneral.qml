@@ -17,6 +17,17 @@ KCM.SimpleKCM {
     property bool cfg_use24h: true
     property alias cfg_notifyOnFailure: notifyOnFailure.checked
 
+    // Plasma passes each option's default as cfg_<name>Default; the page must declare them
+    property string cfg_serverUrlDefault
+    property int cfg_refreshSecondsDefault
+    property var cfg_hiddenDagsDefault
+    property string cfg_sortByDefault
+    property bool cfg_compactRowsDefault
+    property bool cfg_showScheduleDefault
+    property bool cfg_showDurationDefault
+    property bool cfg_use24hDefault
+    property bool cfg_notifyOnFailureDefault
+
     // DAG names known to the server, plus hidden ones it no longer reports
     property var dagNames: []
     property string fetchError: ""
